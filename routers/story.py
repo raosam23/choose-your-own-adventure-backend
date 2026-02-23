@@ -15,6 +15,7 @@ from schemas.story import (
     CompleteStoryResponse,
     CreateStoryRequest,
 )
+from core.story_generators import StoryGenerator
 
 router = APIRouter(prefix="/stories", tags=["Stories"])
 
@@ -59,8 +60,8 @@ def generate_story_task(job_id: str, theme: str, session_id: str):
             # db.add(job)
             db.commit()
 
-            story = {}  # TODO: Implement story generation logic here
-            job.story_id = 1  # TODO: Update story ID
+            story = StoryGenerator.generate_story(db, session_id, theme)
+            job.story_id = story.id
             job.status = "completed"
             job.completed_at = datetime.now()
             # db.add(job)
@@ -85,4 +86,29 @@ def get_complete_story(story_id: int, db: Session = Depends(get_db)):
     return complete_story
 
 def build_complete_story_tree(db: Session, story: Story) -> CompleteStoryResponse:
-    pass
+    nodes = db.query(StoryNode).filter(StoryNode.story_id == story.id).all()
+    node_dict = {}
+    
+    for node in nodes:
+        # print(f'Processing node {node.id} with content: {node.content}')
+        node_response = CompleteStoryNodeResponse(
+            id=node.id,
+            content=node.content,
+            is_ending = node.is_ending,
+            is_winning_ending = node.is_winning_ending,
+            options=node.options
+        )
+        node_dict[node.id] = node_response
+    root_node = next((node for node in nodes if node.is_root), None)
+    print(f'Root node: {root_node.content}')
+    if not root_node:
+        raise HTTPException(status_code=500, detail='Story root node not found')
+    
+    return CompleteStoryResponse(
+        id = story.id,
+        title = story.title,
+        session_id = story.session_id,
+        created_at=story.created_at,
+        root_node=node_dict[root_node.id],
+        all_nodes=node_dict
+    )
